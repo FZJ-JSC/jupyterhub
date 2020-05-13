@@ -146,6 +146,9 @@ class SpawnHandler(BaseHandler):
             self.redirect(url)
             return
 
+        if user.authenticator.multiple_instances:
+            await user.authenticator.update_mem(user, "Handlers.pages.get")
+
         if server_name is None:
             server_name = ''
 
@@ -444,6 +447,9 @@ class AdminHandler(BaseHandler):
 
         users = self.db.query(orm.User).outerjoin(orm.Spawner).order_by(*ordered)
         users = [self._user_from_orm(u) for u in users]
+        for u in users:
+            await u.authenticator.update_mem(u, "AdminHandler")
+
         from itertools import chain
 
         running = []

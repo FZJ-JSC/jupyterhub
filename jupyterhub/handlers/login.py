@@ -2,12 +2,19 @@
 # Copyright (c) Jupyter Development Team.
 # Distributed under the terms of the Modified BSD License.
 import asyncio
+import os
+import requests
+import uuid
+import json
+
+from contextlib import closing
 
 from tornado import web
 from tornado.escape import url_escape
 from tornado.httputil import url_concat
 
 from ..utils import maybe_future
+from ..orm import Spawner
 from .base import BaseHandler
 
 
@@ -22,7 +29,7 @@ class LogoutHandler(BaseHandler):
         """Shutdown servers for logout
 
         Get all active servers for the provided user, stop them.
-        """
+        ""
         active_servers = [
             name
             for (name, spawner) in user.spawners.items()
@@ -34,6 +41,65 @@ class LogoutHandler(BaseHandler):
             for server_name in active_servers:
                 futures.append(maybe_future(self.stop_single_user(user, server_name)))
             await asyncio.gather(*futures)
+        """
+        # Use Jupyter-jsc code to stop servers and revoke the token. So you will be logged out from Unity, too
+        if user:
+            uuidcode = uuid.uuid4().hex
+            self.log.info("username={}, uuidcode={}, action=logout".format(user.name, uuidcode))
+            state = await user.get_auth_state()
+            if state:
+                with open(user.authenticator.orchestrator_token_path, 'r') as f:
+                    intern_token = f.read().rstrip()
+                json_dic = {'accesstoken': state['accesstoken'],
+                        'refreshtoken': state['refreshtoken']}
+                header = {'Intern-Authorization': intern_token,
+                          'uuidcode': uuidcode,
+                          'stopall': 'true',
+                          'username': user.name,
+                          'escapedusername': user.escaped_name,
+                          'expire': state['expire']}
+                if state['login_handler'] == 'jscusername':
+                    header['tokenurl'] = os.environ.get('JSCUSERNAME_TOKEN_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2/token')
+                    header['authorizeurl'] = os.environ.get('JSCUSERNAME_AUTHORIZE_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2-as-username/oauth2-authz')
+                elif state['login_handler'] == 'jscldap':
+                    header['tokenurl'] = os.environ.get('JSCLDAP_TOKEN_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2/token')
+                    header['authorizeurl'] = os.environ.get('JSCLDAP_AUTHORIZE_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2-as/oauth2-authz')
+                elif state['login_handler'] == 'hdfaai':
+                    header['tokenurl'] = os.environ.get('HDFAAI_TOKEN_URL', 'https://unity.helmholtz-data-federation.de/oauth2/token')
+                    header['authorizeurl'] = os.environ.get('HDFAAI_AUTHORIZE_URL', 'https://unity.helmholtz-data-federation.de/oauth2-as/oauth2-authz')
+                else:
+                    self.log.info("Use default tokenurl")
+                    header['tokenurl'] = os.environ.get('JSCLDAP_TOKEN_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2/token')
+                    header['authorizeurl'] = os.environ.get('JSCLDAP_AUTHORIZE_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2-as/oauth2-authz')
+                self.log.debug("uuidcode={} - User Spawners: {}".format(uuidcode, user.spawners))
+                names = []
+                db_spawner_list = user.db.query(Spawner).filter(Spawner.user_id == user.orm_user.id).all()
+                for db_spawner in db_spawner_list:
+                    names.append(db_spawner.name)
+                for name in names:
+                    self.log.debug("uuidcode={} - 'Stop' {}".format(uuidcode, name))
+                    await user.spawners[name].cancel(uuidcode, True)
+                self.log.debug("{} - Revoke access and refresh token - uuidcode={}".format(user.name, uuidcode))
+                try:
+                    with open(user.authenticator.j4j_urls_paths, 'r') as f:
+                        urls = json.load(f)
+                    url = urls.get('orchestrator', {}).get('url_revoke', '<no_url_found>')
+                    with closing(requests.post(url,
+                                               headers=header,
+                                               json=json_dic,
+                                               verify=False)) as r:
+                        if r.status_code != 202:
+                            self.log.warning("Failed J4J_Orchestrator communication: {} {}".format(r.text, r.status_code))
+                except:
+                    self.log.exception("{} - Could not revoke token".format(user.name))
+                state['accesstoken'] = ''
+                state['refreshtoken'] = ''
+                state['expire'] = ''
+                state['oauth_user'] = ''
+                state['scope'] = []
+                state['login_handler'] = ''
+                await user.save_auth_state(state)
+
 
     def _backend_logout_cleanup(self, name):
         """Default backend logout actions

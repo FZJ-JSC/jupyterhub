@@ -333,6 +333,8 @@ class UserTokenAPIHandler(APIHandler):
             raise web.HTTPError(404, not_found)
 
         orm_token = self.db.query(Token).filter(Token.id == id).first()
+        if user.authenticator.multiple_instances:
+            self.db.refresh(orm_token)
         if orm_token is None or orm_token.user is not user.orm_user:
             raise web.HTTPError(404, "Token not found %s", orm_token)
         return orm_token
@@ -456,6 +458,8 @@ class UserServerAPIHandler(APIHandler):
             )
 
         stop_future = None
+        if user.authenticator.multiple_instances:
+            await user.authenticator.update_mem(user, "ApiHandler.User.delete")
         if spawner.ready:
             # include notify, so that a server that died is noticed immediately
             status = await spawner.poll_and_notify()
@@ -584,7 +588,6 @@ class SpawnProgressAPIHandler(APIHandler):
                 return
             else:
                 raise web.HTTPError(400, "%s is not starting...", spawner._log_name)
-
         # retrieve progress events from the Spawner
         async with aclosing(
             iterate_until(spawn_future, spawner._generate_progress())
@@ -611,12 +614,25 @@ class SpawnProgressAPIHandler(APIHandler):
         else:
             # what happened? Maybe spawn failed?
             f = spawn_future
-            if f and f.done() and f.exception():
-                failed_event['message'] = "Spawn failed: %s" % f.exception()
-            else:
-                self.log.warning(
-                    "Server %s didn't start for unknown reason", spawner._log_name
-                )
+            try:
+                if f and f.done() and f.exception():
+                    failed_event['message'] = "Spawn failed: %s" % f.exception()
+                    self.log.info(
+                        "action=failure - Server %s didn't start", spawner._log_name
+                    )
+                elif spawner.error_message != "":
+                    failed_event['html_message'] = "Spawn failed: %s" % spawner.error_message
+                    self.log.info(
+                        "action=failure - Server %s didn't start for known reason: %s", spawner._log_name, spawner.error_message
+                    )
+                else:
+                    failed_event['message'] = "Spawn failed for unknown reason. An administrator is informed."
+                    self.log.warning(
+                        "action=failure - Server %s didn't start for unknown reason", spawner._log_name
+                    )
+            except:
+                failed_event['message'] = "Spawn failed for unknown reason. An administrator is informed."
+                self.log.exception("action=failure - Could not check for error message")
             await self.send_event(failed_event)
 
 

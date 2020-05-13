@@ -7,6 +7,8 @@ import json
 import math
 import random
 import re
+import os
+import sys
 import time
 import uuid
 from datetime import datetime
@@ -17,6 +19,7 @@ from urllib.parse import parse_qsl
 from urllib.parse import urlencode
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
+from threading import Thread
 
 from jinja2 import TemplateNotFound
 from sqlalchemy.exc import SQLAlchemyError
@@ -169,8 +172,16 @@ class BaseHandler(RequestHandler):
     def finish(self, *args, **kwargs):
         """Roll back any uncommitted transactions from the handler."""
         if self.db.dirty:
-            self.log.warning("Rolling back dirty objects %s", self.db.dirty)
-            self.db.rollback()
+            if os.environ.get('MULTIPLE_INSTANCES', 'false').lower() == 'true':
+                for dirty_obj in self.db.dirty:
+                    self.db.refresh(dirty_obj)
+                if self.db.dirty:
+                    self.log.warning("Still dirty objects %s . That's bad.", self.db.dirty)
+                    self.log.warning("Jupyter-jsc prevents database rollback. Stop the instance and let docker restart it.")
+                    sys.exit()
+            else:
+                self.log.warning("Rolling back dirty objects %s", self.db.dirty)
+                self.db.rollback()
         super().finish(*args, **kwargs)
 
     # ---------------------------------------------------------------
@@ -394,7 +405,14 @@ class BaseHandler(RequestHandler):
             return
         cookie_id = cookie_id.decode('utf8', 'replace')
         u = self.db.query(orm.User).filter(orm.User.cookie_id == cookie_id).first()
+        self.db.refresh(u)
         user = self._user_from_orm(u)
+        def call_update_mem(user):
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(user.authenticator.update_mem(user, "Handlers.Base._user_for_cookie"))
+        t = Thread(target=call_update_mem, args=(user,))
+        t.start()
+        t.join()
         if user is None:
             self.log.warning("Invalid cookie token")
             # have cookie, but it's not valid. Clear it and start over.
@@ -852,8 +870,9 @@ class BaseHandler(RequestHandler):
             await spawn_future
             toc = IOLoop.current().time()
             self.log.info(
-                "User %s took %.3f seconds to start", user_server_name, toc - tic
+                "action=success - username=%s - User %s took %.3f seconds to start", user.name, user_server_name, toc - tic
             )
+            spawner.remove_proxys("<no_uuidcode>")
             self.statsd.timing('spawner.success', (toc - tic) * 1000)
             SERVER_SPAWN_DURATION_SECONDS.labels(
                 status=ServerSpawnStatus.success
@@ -1167,8 +1186,12 @@ class BaseHandler(RequestHandler):
                 message = reasons.get(reason, reason)
 
         if exception and isinstance(exception, SQLAlchemyError):
-            self.log.warning("Rolling back session due to database error %s", exception)
-            self.db.rollback()
+            if os.environ.get('MULTIPLE_INSTANCES', 'false').lower() == 'true':
+                self.log.warning("Jupyter-jsc prevents database rollback. Stop the instance and let docker restart it.")
+                sys.exit()
+            else:
+                self.log.warning("Rolling back session due to database error %s", exception)
+                self.db.rollback()
 
         # build template namespace
         ns = dict(

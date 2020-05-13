@@ -391,6 +391,10 @@ class JupyterHub(Application):
         config=True
     )
 
+    multiple_instances = Bool(
+        os.environ.get('MULTIPLE_INSTANCES', 'false').lower() == 'true', help="""Do we expect concurrent runs of the hub talking to the same db? Turning this off gives a major performance boost"""
+    ).tag(config=True)
+
     confirm_no_ssl = Bool(False, help="""DEPRECATED: does nothing""").tag(config=True)
     ssl_key = Unicode(
         '',
@@ -1519,7 +1523,7 @@ class JupyterHub(Application):
 
         try:
             self.session_factory = orm.new_session_factory(
-                self.db_url, reset=self.reset_db, echo=self.debug_db, **self.db_kwargs
+                self.db_url, reset=self.reset_db, expire_on_commit=self.multiple_instances, echo=self.debug_db, **self.db_kwargs
             )
             self.db = self.session_factory()
         except OperationalError as e:
@@ -2471,8 +2475,16 @@ class JupyterHub(Application):
         try:
             self.db.commit()
         except SQLAlchemyError:
-            self.log.exception("Rolling back session due to database error")
-            self.db.rollback()
+            try:
+                if os.environ.get('MULTIPLE_INSTANCES', 'false').lower() == 'true':
+                    self.log.error("Jupyter-jsc prevents database rollback. Stop this instance and let docker restart it.")
+                    sys.exit()
+                else:
+                    self.log.exception("Rolling back session due to database error")
+                    self.db.rollback()
+            except:
+                self.log.exception("Rolling back session due to database error")
+                self.db.rollback()
             return
 
         await self.proxy.check_routes(self.users, self._service_map, routes)
