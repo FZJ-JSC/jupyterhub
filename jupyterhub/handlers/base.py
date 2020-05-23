@@ -404,9 +404,20 @@ class BaseHandler(RequestHandler):
                 clear()
             return
         cookie_id = cookie_id.decode('utf8', 'replace')
-        u = self.db.query(orm.User).filter(orm.User.cookie_id == cookie_id).first()
-        self.db.refresh(u)
-        user = self._user_from_orm(u)
+        try:
+            u = self.db.query(orm.User).filter(orm.User.cookie_id == cookie_id).first()
+            if not u:
+                if self.get_cookie(cookie_name):
+                    self.log.warning("Invalid or expired cookie token")
+                    clear()
+                return
+            self.db.refresh(u)
+            user = self._user_from_orm(u)
+        except:
+            if self.get_cookie(cookie_name):
+                self.log.warning("Invalid or expired cookie token")
+                clear()
+            return
         def call_update_mem(user):
             loop = asyncio.new_event_loop()
             loop.run_until_complete(user.authenticator.update_mem(user, "Handlers.Base._user_for_cookie"))
