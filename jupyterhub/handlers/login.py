@@ -25,7 +25,7 @@ class LogoutHandler(BaseHandler):
     def shutdown_on_logout(self):
         return self.settings.get('shutdown_on_logout', False)
 
-    async def _shutdown_servers(self, user):
+    async def _shutdown_servers(self, user, stopall):
         """Shutdown servers for logout
 
         Get all active servers for the provided user, stop them.
@@ -54,10 +54,13 @@ class LogoutHandler(BaseHandler):
                         'refreshtoken': state['refreshtoken']}
                 header = {'Intern-Authorization': intern_token,
                           'uuidcode': uuidcode,
-                          'stopall': 'true',
                           'username': user.name,
                           'escapedusername': user.escaped_name,
                           'expire': state['expire']}
+                if stopall:
+                    header['stopall'] = 'true'
+                else:
+                    header['stopall'] = 'false'
                 if state['login_handler'] == 'jscusername':
                     header['tokenurl'] = os.environ.get('JSCUSERNAME_TOKEN_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2/token')
                     header['authorizeurl'] = os.environ.get('JSCUSERNAME_AUTHORIZE_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2-as-username/oauth2-authz')
@@ -73,12 +76,13 @@ class LogoutHandler(BaseHandler):
                     header['authorizeurl'] = os.environ.get('JSCLDAP_AUTHORIZE_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2-as/oauth2-authz')
                 self.log.debug("uuidcode={} - User Spawners: {}".format(uuidcode, user.spawners))
                 names = []
-                db_spawner_list = user.db.query(Spawner).filter(Spawner.user_id == user.orm_user.id).all()
-                for db_spawner in db_spawner_list:
-                    names.append(db_spawner.name)
-                for name in names:
-                    self.log.debug("uuidcode={} - 'Stop' {}".format(uuidcode, name))
-                    await user.spawners[name].cancel(uuidcode, True)
+                if stopall:
+                    db_spawner_list = user.db.query(Spawner).filter(Spawner.user_id == user.orm_user.id).all()
+                    for db_spawner in db_spawner_list:
+                        names.append(db_spawner.name)
+                    for name in names:
+                        self.log.debug("uuidcode={} - 'Stop' {}".format(uuidcode, name))
+                        await user.spawners[name].cancel(uuidcode, True)
                 self.log.debug("{} - Revoke access and refresh token - uuidcode={}".format(user.name, uuidcode))
                 try:
                     with open(user.authenticator.j4j_urls_paths, 'r') as f:
@@ -110,7 +114,7 @@ class LogoutHandler(BaseHandler):
         self.clear_login_cookie()
         self.statsd.incr('logout')
 
-    async def default_handle_logout(self):
+    async def default_handle_logout(self, stopall=True):
         """The default logout action
 
         Optionally cleans up servers, clears cookies, increments logout counter
@@ -120,7 +124,7 @@ class LogoutHandler(BaseHandler):
         user = self.current_user
         if user:
             if self.shutdown_on_logout:
-                await self._shutdown_servers(user)
+                await self._shutdown_servers(user, stopall)
 
             self._backend_logout_cleanup(user.name)
 
@@ -147,7 +151,8 @@ class LogoutHandler(BaseHandler):
         """Log the user out, call the custom action, forward the user
             to the logout page
         """
-        await self.default_handle_logout()
+        stopall = self.get_argument("stopall", "true", True)
+        await self.default_handle_logout(stopall.lower() == "true")
         await self.handle_logout()
         await self.render_logout_page()
 
