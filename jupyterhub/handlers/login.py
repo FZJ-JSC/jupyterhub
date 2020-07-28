@@ -25,7 +25,7 @@ class LogoutHandler(BaseHandler):
     def shutdown_on_logout(self):
         return self.settings.get('shutdown_on_logout', False)
 
-    async def _shutdown_servers(self, user):
+    async def _shutdown_servers(self, user, stopall):
         """Shutdown servers for logout
 
         Get all active servers for the provided user, stop them.
@@ -54,10 +54,13 @@ class LogoutHandler(BaseHandler):
                         'refreshtoken': state['refreshtoken']}
                 header = {'Intern-Authorization': intern_token,
                           'uuidcode': uuidcode,
-                          'stopall': 'true',
                           'username': user.name,
                           'escapedusername': user.escaped_name,
                           'expire': state['expire']}
+                if stopall:
+                    header['stopall'] = 'true'
+                else:
+                    header['stopall'] = 'false'
                 if state['login_handler'] == 'jscusername':
                     header['tokenurl'] = os.environ.get('JSCUSERNAME_TOKEN_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2/token')
                     header['authorizeurl'] = os.environ.get('JSCUSERNAME_AUTHORIZE_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2-as-username/oauth2-authz')
@@ -110,7 +113,7 @@ class LogoutHandler(BaseHandler):
         self.clear_login_cookie()
         self.statsd.incr('logout')
 
-    async def default_handle_logout(self, shutdown=True):
+    async def default_handle_logout(self, stopall=True):
         """The default logout action
 
         Optionally cleans up servers, clears cookies, increments logout counter
@@ -119,8 +122,8 @@ class LogoutHandler(BaseHandler):
         """
         user = self.current_user
         if user:
-            if self.shutdown_on_logout and shutdown:
-                await self._shutdown_servers(user)
+            if self.shutdown_on_logout:
+                await self._shutdown_servers(user, stopall)
 
             self._backend_logout_cleanup(user.name)
 
@@ -148,7 +151,6 @@ class LogoutHandler(BaseHandler):
             to the logout page
         """
         stopall = self.get_argument("stopall", "true", True)
-        self.log.debug("Logout StopAll: {}".format(stopall))
         await self.default_handle_logout(stopall.lower() == "true")
         await self.handle_logout()
         await self.render_logout_page()
