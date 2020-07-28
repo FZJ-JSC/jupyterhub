@@ -76,12 +76,13 @@ class LogoutHandler(BaseHandler):
                     header['authorizeurl'] = os.environ.get('JSCLDAP_AUTHORIZE_URL', 'https://unity-jsc.fz-juelich.de/jupyter-oauth2-as/oauth2-authz')
                 self.log.debug("uuidcode={} - User Spawners: {}".format(uuidcode, user.spawners))
                 names = []
-                db_spawner_list = user.db.query(Spawner).filter(Spawner.user_id == user.orm_user.id).all()
-                for db_spawner in db_spawner_list:
-                    names.append(db_spawner.name)
-                for name in names:
-                    self.log.debug("uuidcode={} - 'Stop' {}".format(uuidcode, name))
-                    await user.spawners[name].cancel(uuidcode, True)
+                if stopall:
+                    db_spawner_list = user.db.query(Spawner).filter(Spawner.user_id == user.orm_user.id).all()
+                    for db_spawner in db_spawner_list:
+                        names.append(db_spawner.name)
+                    for name in names:
+                        self.log.debug("uuidcode={} - 'Stop' {}".format(uuidcode, name))
+                        await user.spawners[name].cancel(uuidcode, True)
                 self.log.debug("{} - Revoke access and refresh token - uuidcode={}".format(user.name, uuidcode))
                 try:
                     with open(user.authenticator.j4j_urls_paths, 'r') as f:
