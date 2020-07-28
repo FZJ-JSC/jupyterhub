@@ -110,7 +110,7 @@ class LogoutHandler(BaseHandler):
         self.clear_login_cookie()
         self.statsd.incr('logout')
 
-    async def default_handle_logout(self):
+    async def default_handle_logout(self, shutdown=True):
         """The default logout action
 
         Optionally cleans up servers, clears cookies, increments logout counter
@@ -119,7 +119,7 @@ class LogoutHandler(BaseHandler):
         """
         user = self.current_user
         if user:
-            if self.shutdown_on_logout:
+            if self.shutdown_on_logout and shutdown:
                 await self._shutdown_servers(user)
 
             self._backend_logout_cleanup(user.name)
@@ -147,7 +147,9 @@ class LogoutHandler(BaseHandler):
         """Log the user out, call the custom action, forward the user
             to the logout page
         """
-        await self.default_handle_logout()
+        stopall = self.get_argument("stopall", "true", True)
+        self.log.debug("Logout StopAll: {}".format(stopall))
+        await self.default_handle_logout(stopall.lower() == "true")
         await self.handle_logout()
         await self.render_logout_page()
 
