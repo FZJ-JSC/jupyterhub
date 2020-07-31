@@ -28,6 +28,7 @@ from tornado.httputil import url_concat
 from tornado.log import app_log
 from tornado.web import HTTPError
 from tornado.web import RequestHandler
+from traitlets import Bool
 from traitlets import default
 from traitlets import Dict
 from traitlets import Instance
@@ -188,6 +189,20 @@ class HubAuth(SingletonConfigurable):
         help="""API key for accessing Hub API.
 
         Generate with `jupyterhub token [username]` or add to JupyterHub.services config.
+        """,
+    ).tag(config=True)
+
+    session_id_required = Bool(
+        os.getenv('JUPYTERHUB_SESSION_ID_REQUIRED', 'false').lower()=="true",
+        help="""
+        Blocks any cookie based requests, if there's no jupyterhub-session-id cookie.
+        """,
+    ).tag(config=True)
+
+    session_id_required_user = Bool(
+        os.getenv('JUPYTERHUB_SESSION_ID_REQUIRED_USER', 'false').lower()=="true",
+        help="""
+        Blocks any cookie based requests to /user, if there's no jupyterhub-session-id cookie.
         """,
     ).tag(config=True)
 
@@ -484,16 +499,23 @@ class HubAuth(SingletonConfigurable):
         handler._cached_hub_user = user_model = None
         session_id = self.get_session_id(handler)
 
-        # check token first
-        token = self.get_token(handler)
-        if token:
-            user_model = self.user_for_token(token, session_id=session_id)
-            if user_model:
-                handler._token_authenticated = True
+        if self.session_id_required and not session_id:
+            app_log.info("Unauthorized access. Only users with a session id are allowed.")
+            user_model = None
+        elif self.session_id_required_user and not session_id and handler.request.uri.startswith('/user'):
+            app_log.info("Unauthorized access. Only users with a session id are allowed to access /user.")
+            user_model = None
+        else:
+            # check token first
+            token = self.get_token(handler)
+            if token:
+                user_model = self.user_for_token(token, session_id=session_id)
+                if user_model:
+                    handler._token_authenticated = True
 
-        # no token, check cookie
-        if user_model is None:
-            user_model = self._get_user_cookie(handler)
+            # no token, check cookie
+            if user_model is None:
+                user_model = self._get_user_cookie(handler)
 
         # cache result
         handler._cached_hub_user = user_model
