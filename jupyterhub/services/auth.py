@@ -501,10 +501,10 @@ class HubAuth(SingletonConfigurable):
 
         if self.session_id_required and not session_id:
             app_log.info("Unauthorized access. Only users with a session id are allowed.")
-            return {'name': ''}
+            return {'name': '<session_id_required>', 'kind': 'User'}
         elif self.session_id_required_user and not session_id and handler.request.uri.startswith('/user'):
             app_log.info("Unauthorized access. Only users with a session id are allowed to access /user.")
-            return {'name': ''}
+            return {'name': '<session_id_required>', 'kind': 'User'}
         else:
             # check token first
             token = self.get_token(handler)
@@ -926,10 +926,16 @@ class HubAuthenticated(object):
             # tries to redirect to login URL, 403 will be raised instead.
             # This is not the best, but avoids problems that can be caused
             # when get_current_user is allowed to raise.
-            def raise_on_redirect(*args, **kwargs):
-                raise HTTPError(
-                    403, "{kind} {name} is not allowed.".format(**user_model)
-                )
+            if user_model.get('name', '') == '<session_id_required>':
+                def raise_on_redirect(*args, **kwargs):
+                    raise HTTPError(
+                        401, "Please login to proceed."
+                    )
+            else:
+                def raise_on_redirect(*args, **kwargs):
+                    raise HTTPError(
+                        403, "{kind} {name} is not allowed.".format(**user_model)
+                    )
 
             self.redirect = raise_on_redirect
             return
