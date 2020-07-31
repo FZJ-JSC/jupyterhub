@@ -501,10 +501,10 @@ class HubAuth(SingletonConfigurable):
 
         if self.session_id_required and not session_id:
             app_log.info("Unauthorized access. Only users with a session id are allowed.")
-            user_model = None
+            return {'name': ''}
         elif self.session_id_required_user and not session_id and handler.request.uri.startswith('/user'):
             app_log.info("Unauthorized access. Only users with a session id are allowed to access /user.")
-            user_model = None
+            return {'name': ''}
         else:
             # check token first
             token = self.get_token(handler)
