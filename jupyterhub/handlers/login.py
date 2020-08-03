@@ -14,7 +14,7 @@ from tornado.escape import url_escape
 from tornado.httputil import url_concat
 
 from ..utils import maybe_future, new_token
-from ..orm import Spawner
+from ..orm import Spawner, User
 from .base import BaseHandler
 
 
@@ -126,7 +126,7 @@ class LogoutHandler(BaseHandler):
             if self.shutdown_on_logout:
                 await self._shutdown_servers(user, stopall)
             if alldevices:
-                db_user = orm.User.find(user.db, name=user.name)
+                db_user = User.find(user.db, name=user.name)
                 db_user.cookie_id = new_token()
                 user.db.commit()
             self._backend_logout_cleanup(user.name)
