@@ -13,7 +13,7 @@ from tornado import web
 from tornado.escape import url_escape
 from tornado.httputil import url_concat
 
-from ..utils import maybe_future
+from ..utils import maybe_future, new_token
 from ..orm import Spawner
 from .base import BaseHandler
 
@@ -114,7 +114,7 @@ class LogoutHandler(BaseHandler):
         self.clear_login_cookie()
         self.statsd.incr('logout')
 
-    async def default_handle_logout(self, stopall=True):
+    async def default_handle_logout(self, stopall=True, alldevices=False):
         """The default logout action
 
         Optionally cleans up servers, clears cookies, increments logout counter
@@ -125,7 +125,10 @@ class LogoutHandler(BaseHandler):
         if user:
             if self.shutdown_on_logout:
                 await self._shutdown_servers(user, stopall)
-
+            if alldevices:
+                db_user = orm.User.find(user.db, name=user.name)
+                db_user.cookie_id = new_token()
+                user.db.commit()
             self._backend_logout_cleanup(user.name)
 
     async def handle_logout(self):
@@ -152,7 +155,8 @@ class LogoutHandler(BaseHandler):
             to the logout page
         """
         stopall = self.get_argument("stopall", "true", True)
-        await self.default_handle_logout(stopall.lower() == "true")
+        alldevices = self.get_argument("alldevices", "true", True)
+        await self.default_handle_logout(stopall.lower() == "true", alldevices.lower() == "true")
         await self.handle_logout()
         await self.render_logout_page()
 
