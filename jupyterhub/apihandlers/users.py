@@ -333,7 +333,7 @@ class UserTokenAPIHandler(APIHandler):
             raise web.HTTPError(404, not_found)
 
         orm_token = self.db.query(Token).filter(Token.id == id).first()
-        if user.authenticator.multiple_instances:
+        if user.authenticator.multiple_instances and orm_token:
             self.db.refresh(orm_token)
         if orm_token is None or orm_token.user is not user.orm_user:
             raise web.HTTPError(404, "Token not found %s", orm_token)

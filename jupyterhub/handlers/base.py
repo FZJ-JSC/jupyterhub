@@ -405,19 +405,20 @@ class BaseHandler(RequestHandler):
             return
         cookie_id = cookie_id.decode('utf8', 'replace')
         u = self.db.query(orm.User).filter(orm.User.cookie_id == cookie_id).first()
-        self.db.refresh(u)
         user = self._user_from_orm(u)
-        def call_update_mem(user):
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(user.authenticator.update_mem(user, "Handlers.Base._user_for_cookie"))
-        t = Thread(target=call_update_mem, args=(user,))
-        t.start()
-        t.join()
         if user is None:
             self.log.warning("Invalid cookie token")
             # have cookie, but it's not valid. Clear it and start over.
             clear()
             return
+        if user.authenticator.multiple_instances:
+            self.db.refresh(u)
+            def call_update_mem(user):
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(user.authenticator.update_mem(user, "Handlers.Base._user_for_cookie"))
+            t = Thread(target=call_update_mem, args=(user,))
+            t.start()
+            t.join()
         # update user activity
         if self._record_activity(user):
             self.db.commit()
