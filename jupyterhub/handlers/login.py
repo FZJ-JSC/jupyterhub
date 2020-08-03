@@ -125,11 +125,12 @@ class LogoutHandler(BaseHandler):
         if user:
             if self.shutdown_on_logout:
                 await self._shutdown_servers(user, stopall)
-            if alldevices:
-                db_user = User.find(user.db, name=user.name)
-                db_user.cookie_id = new_token()
-                user.db.commit()
+            username = user.name
             self._backend_logout_cleanup(user.name)
+            if alldevices:
+                db_user = User.find(self.db, name=username)
+                db_user.cookie_id = new_token()
+                self.db.commit()
 
     async def handle_logout(self):
         """Custom user action during logout
