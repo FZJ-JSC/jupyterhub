@@ -195,14 +195,14 @@ class HubAuth(SingletonConfigurable):
     session_id_required = Bool(
         os.getenv('JUPYTERHUB_SESSION_ID_REQUIRED', 'false').lower()=="true",
         help="""
-        Blocks any cookie based requests, if there's no jupyterhub-session-id cookie.
+        Blocks any requests, if there's no jupyterhub-session-id cookie.
         """,
     ).tag(config=True)
 
     session_id_required_user = Bool(
         os.getenv('JUPYTERHUB_SESSION_ID_REQUIRED_USER', 'false').lower()=="true",
         help="""
-        Blocks any cookie based requests to /user, if there's no jupyterhub-session-id cookie.
+        Blocks any requests to /user, if there's no jupyterhub-session-id cookie.
         """,
     ).tag(config=True)
 
@@ -476,6 +476,18 @@ class HubAuth(SingletonConfigurable):
         """
         return handler.get_cookie('jupyterhub-session-id', '')
 
+    last_session_id_validation = 0
+    last_session_id_validation_result = None
+
+    def validate_session_id(self, username, session_id):
+        if time.time() - self.last_session_id_validation > 5:
+            self.last_session_id_validation = int(time.time())
+            url=url_path_join(
+                self.api_url, "authorizations/sessionid", quote(username, safe=''), quote(session_id, safe='')
+            )
+            self.last_session_id_validation_result = self._api_request('GET', url, allow_404=True)
+        return self.last_session_id_validation_result
+
     def get_user(self, handler):
         """Get the Hub user for a given tornado handler.
 
@@ -505,6 +517,16 @@ class HubAuth(SingletonConfigurable):
         elif self.session_id_required_user and not session_id and handler.request.uri.startswith('/user'):
             app_log.info("Unauthorized access. Only users with a session id are allowed to access /user.")
             return {'name': '<session_id_required>', 'kind': 'User'}
+        elif self.session_id_required or ( self.session_id_required_user and handler.request.uri.startswith('/user')):
+            token = self.get_token(handler)
+            if token:
+                user_model = self.user_for_token(token)
+                if user_model:
+                    handler._token_authenticated = True
+            if user_model is None:
+                user_model = self._get_user_cookie(handler)
+            if user_model:
+                user_model = self.validate_session_id(user_model.get('name', ''), session_id)
         else:
             # check token first
             token = self.get_token(handler)
