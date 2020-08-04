@@ -594,11 +594,14 @@ class BaseHandler(RequestHandler):
             self.set_service_cookie(user)
 
         if not self.get_session_cookie():
-            self.set_session_cookie()
+            session_id = self.set_session_cookie()
+        else:
+            session_id = self.get_session_cookie()
 
         # create and set a new cookie token for the hub
         if not self.get_current_user_cookie():
             self.set_hub_cookie(user)
+        return session_id
 
     def authenticate(self, data):
         return maybe_future(self.authenticator.get_authenticated_user(self, data))
@@ -709,6 +712,9 @@ class BaseHandler(RequestHandler):
         if not self.authenticator.enable_auth_state:
             # auth_state is not enabled. Force None.
             auth_state = None
+        elif self.authenticator.enable_auth_state and self.authenticator.strict_session_ids:
+            prev_auth_state = await user.get_auth_state()
+            auth_state['session_ids'] = prev_auth_state.get('session_ids', [])
         await user.save_auth_state(auth_state)
         return user
 
@@ -720,11 +726,18 @@ class BaseHandler(RequestHandler):
 
         if authenticated:
             user = await self.auth_to_user(authenticated)
-            self.set_login_cookie(user)
+            session_id = self.set_login_cookie(user)
             self.statsd.incr('login.success')
             self.statsd.timing('login.authenticate.success', auth_timer.ms)
             self.log.info("User logged in: %s", user.name)
             user._auth_refreshed = time.monotonic()
+            if self.authenticator.enable_auth_state and self.authenticator.strict_session_ids:
+                auth_state = await user.get_auth_state()
+                if auth_state:
+                    if 'session_ids' not in auth_state.keys():
+                        auth_state['session_ids'] = []
+                    auth_state['session_ids'].append(session_id)
+                    await user.save_auth_state(auth_state)
             return user
         else:
             self.statsd.incr('login.failure')

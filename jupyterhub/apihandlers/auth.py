@@ -19,6 +19,21 @@ from ..utils import token_authenticated
 from .base import APIHandler
 from .base import BaseHandler
 
+class SessionIDAPIHandler(APIHandler):
+    @token_authenticated
+    async def get(self, username, session_id):
+        # If session_id is commited, is this session part of the user's auth_state?
+        self.log.warning("Called: {} {}".format(username, session_id))
+        db_user = orm.User.find(self.db, username)
+        if db_user:
+            session_ids = await self.users[db_user].authenticator.load_session_ids(username)
+            self.log.warning("session_ids: {}".format(session_ids))
+            if session_id not in session_ids:
+                raise web.HTTPError(404)
+            model = self.user_model(self.users[db_user])
+            self.write(json.dumps(model))
+        else:
+            raise web.HTTPError(404)
 
 class TokenAPIHandler(APIHandler):
     @token_authenticated
@@ -317,6 +332,7 @@ default_handlers = [
     (r"/api/authorizations/cookie/([^/]+)(?:/([^/]+))?", CookieAPIHandler),
     (r"/api/authorizations/token/([^/]+)", TokenAPIHandler),
     (r"/api/authorizations/token", TokenAPIHandler),
+    (r"/api/authorizations/sessionid/([^/]*)/([^/]*)", SessionIDAPIHandler),
     (r"/api/oauth2/authorize", OAuthAuthorizeHandler),
     (r"/api/oauth2/token", OAuthTokenHandler),
 ]

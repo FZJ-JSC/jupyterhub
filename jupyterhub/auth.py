@@ -23,6 +23,8 @@ from tornado.concurrent import run_on_executor
 from traitlets.config import LoggingConfigurable
 from traitlets import Bool, Integer, Set, Unicode, Dict, Any, default, observe
 
+from . import orm
+from .crypto import decrypt
 from .handlers.login import LoginHandler
 from .utils import maybe_future, url_path_join
 from .traitlets import Command
@@ -51,6 +53,26 @@ class Authenticator(LoggingConfigurable):
         If encryption is unavailable, auth_state cannot be persisted.
 
         New in JupyterHub 0.8
+        """,
+    )
+
+    logout_all_devices = Bool(
+        False,
+        config=True,
+        help="""Enable logout on all devices.
+        This will create a new api_token for a user when he logs out.
+        Therefore all previous generated cookies, based on cookie_id,
+        are invalid.
+        """,
+    )
+
+    strict_session_ids = Bool(
+        False,
+        config=True,
+        help="""Saves session_ids in user's auth_state.
+        If the user logs out all stored session_ids will be removed.
+        Start services with JUPYTERHUB_REQUIRE_SESSION_ID="true", to
+        prevent logged out browser to access these services.
         """,
     )
 
@@ -470,6 +492,18 @@ class Authenticator(LoggingConfigurable):
                 determined or should not change.
         """
         return True if authentication['name'] in self.admin_users else None
+
+    async def load_session_ids(self, username):
+        db_user = orm.User.find(self.db, username)
+        if db_user:
+            self.db.refresh(db_user)
+            encrypted = db_user.encrypted_auth_state
+            if encrypted is None:
+                return None
+            auth_state = await decrypt(encrypted)
+            if 'session_ids' in auth_state:
+                return auth_state['session_ids']
+        return None
 
     async def authenticate(self, handler, data):
         """Authenticate a user with login form data

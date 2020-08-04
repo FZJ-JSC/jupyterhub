@@ -126,8 +126,14 @@ class LogoutHandler(BaseHandler):
             if self.shutdown_on_logout:
                 await self._shutdown_servers(user, stopall)
             username = user.name
+            logout_all_devices = alldevices or user.authenticator.logout_all_devices
+            if user.authenticator.enable_auth_state and user.authenticator.strict_session_ids:
+                auth_state = await user.get_auth_state()
+                if auth_state:
+                    auth_state['session_ids'] = []
+                    await user.save_auth_state(auth_state)
             self._backend_logout_cleanup(user.name)
-            if alldevices:
+            if logout_all_devices:
                 db_user = User.find(self.db, name=username)
                 db_user.cookie_id = new_token()
                 self.db.commit()
