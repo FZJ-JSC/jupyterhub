@@ -55,6 +55,7 @@ class LogoutHandler(BaseHandler):
                 header = {'Intern-Authorization': intern_token,
                           'uuidcode': uuidcode,
                           'username': user.name,
+                          'revokeall': 'true',
                           'escapedusername': user.escaped_name,
                           'expire': state['expire']}
                 if stopall:
