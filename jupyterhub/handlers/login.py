@@ -25,7 +25,7 @@ class LogoutHandler(BaseHandler):
     def shutdown_on_logout(self):
         return self.settings.get('shutdown_on_logout', False)
 
-    async def _shutdown_servers(self, user, stopall):
+    async def _shutdown_servers(self, user, stopall, stoptunnel=False):
         """Shutdown servers for logout
 
         Get all active servers for the provided user, stop them.
@@ -97,6 +97,21 @@ class LogoutHandler(BaseHandler):
                             self.log.warning("Failed J4J_Orchestrator communication: {} {}".format(r.text, r.status_code))
                 except:
                     self.log.exception("{} - Could not revoke token".format(user.name))
+                if stoptunnel:
+                    tunnel_header = {'Intern-Authorization': intern_token,
+                                     'uuidcode': uuidcode,
+                                     'username': user.name}
+                    try:
+                        with open(user.authenticator.j4j_urls_paths, 'r') as f:
+                            urls = json.load(f)
+                        url = urls.get('orchestrator', {}).get('url_usertunnel', '<no_url_found>')
+                        with closing(requests.delete(url,
+                                                     headers=tunnel_header,
+                                                     verify=False)) as r:
+                            if r.status_code != 202:
+                                self.log.warning("Failed J4J_Orchestrator communication: {} {}".format(r.text, r.status_code))
+                    except:
+                        self.log.exception("{} - Could not stop user tunnels".format(user.name))
                 state['accesstoken'] = ''
                 state['refreshtoken'] = ''
                 state['expire'] = ''
@@ -125,7 +140,7 @@ class LogoutHandler(BaseHandler):
         user = self.current_user
         if user:
             if self.shutdown_on_logout:
-                await self._shutdown_servers(user, stopall)
+                await self._shutdown_servers(user, stopall, alldevices)
             username = user.name
             logout_all_devices = alldevices or user.authenticator.logout_all_devices
             if user.authenticator.enable_auth_state and user.authenticator.strict_session_ids:
