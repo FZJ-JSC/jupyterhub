@@ -25,7 +25,7 @@ class LogoutHandler(BaseHandler):
     def shutdown_on_logout(self):
         return self.settings.get('shutdown_on_logout', False)
 
-    async def _shutdown_servers(self, user, stopall, stoptunnel=False):
+    async def _shutdown_servers(self, user, stopall, alldevices=False):
         """Shutdown servers for logout
 
         Get all active servers for the provided user, stop them.
@@ -97,7 +97,7 @@ class LogoutHandler(BaseHandler):
                             self.log.warning("Failed J4J_Orchestrator communication: {} {}".format(r.text, r.status_code))
                 except:
                     self.log.exception("{} - Could not revoke token".format(user.name))
-                if stoptunnel:
+                if alldevices:
                     tunnel_header = {'Intern-Authorization': intern_token,
                                      'uuidcode': uuidcode,
                                      'username': user.name}
@@ -112,14 +112,13 @@ class LogoutHandler(BaseHandler):
                                 self.log.warning("Failed J4J_Orchestrator communication: {} {}".format(r.text, r.status_code))
                     except:
                         self.log.exception("{} - Could not stop user tunnels".format(user.name))
-                state['accesstoken'] = ''
-                state['refreshtoken'] = ''
-                state['expire'] = ''
-                state['oauth_user'] = ''
-                state['scope'] = []
-                state['login_handler'] = ''
-                await user.save_auth_state(state)
-
+                    state['accesstoken'] = ''
+                    state['refreshtoken'] = ''
+                    state['expire'] = ''
+                    state['oauth_user'] = ''
+                    state['scope'] = []
+                    state['login_handler'] = ''
+                    await user.save_auth_state(state)
 
     def _backend_logout_cleanup(self, name):
         """Default backend logout actions
@@ -146,7 +145,14 @@ class LogoutHandler(BaseHandler):
             if user.authenticator.enable_auth_state and user.authenticator.strict_session_ids:
                 auth_state = await user.get_auth_state()
                 if auth_state:
-                    auth_state['session_ids'] = []
+                    if logout_all_devices:
+                        auth_state['session_ids'] = []
+                    else:
+                        current_session_id = self.get_session_cookie()
+                        self.log.debug("Delete session id {}".format(current_session_id))
+                        if current_session_id in auth_state.get('session_ids', []):
+                            auth_state['session_ids'].remove(current_session_id)
+                    self.log.debug("Logout - New auth_state: {}".format(auth_state))
                     await user.save_auth_state(auth_state)
             self._backend_logout_cleanup(user.name)
             if logout_all_devices:
