@@ -494,15 +494,20 @@ class Authenticator(LoggingConfigurable):
         return True if authentication['name'] in self.admin_users else None
 
     async def load_session_ids(self, username):
+        self.log.info(" ------- Load Session ID")
         db_user = orm.User.find(self.db, username)
+        self.log.info(" ------- Load Session ID: {}".format(db_user))
         if db_user:
             self.db.refresh(db_user)
             encrypted = db_user.encrypted_auth_state
             if encrypted is None:
+                self.log.info(" ------- Load Session ID: 1")
                 return None
             auth_state = await decrypt(encrypted)
             if 'session_ids' in auth_state:
+                self.log.info(" ------- Load Session ID: 2")
                 return auth_state['session_ids']
+            self.log.info(" ------- Load Session ID: 3")
         return None
 
     async def authenticate(self, handler, data):
