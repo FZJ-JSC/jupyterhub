@@ -26,10 +26,11 @@ class SessionIDAPIHandler(APIHandler):
         self.log.warning("Called: {} {}".format(username, session_id))
         db_user = orm.User.find(self.db, username)
         if db_user:
-            session_ids = await self.users[db_user].authenticator.load_session_ids(username)
-            self.log.warning("session_ids: {}".format(session_ids))
-            if session_id not in session_ids:
-                raise web.HTTPError(404)
+            if self.users[db_user].authenticator.strict_session_ids:
+                session_ids = await self.users[db_user].authenticator.load_session_ids(username)
+                self.log.warning("session_ids: {}".format(session_ids))
+                if session_id not in session_ids:
+                    raise web.HTTPError(404)
             model = self.user_model(self.users[db_user])
             self.write(json.dumps(model))
         else:
