@@ -499,11 +499,11 @@ class Authenticator(LoggingConfigurable):
             self.db.refresh(db_user)
             encrypted = db_user.encrypted_auth_state
             if encrypted is None:
-                return None
+                return []
             auth_state = await decrypt(encrypted)
             if 'session_ids' in auth_state:
                 return auth_state['session_ids']
-        return None
+        return []
 
     async def authenticate(self, handler, data):
         """Authenticate a user with login form data
