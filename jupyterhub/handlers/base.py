@@ -732,7 +732,10 @@ class BaseHandler(RequestHandler):
             auth_state = None
         elif self.authenticator.enable_auth_state and self.authenticator.strict_session_ids:
             prev_auth_state = await user.get_auth_state()
-            auth_state['session_ids'] = prev_auth_state.get('session_ids', [])
+            if prev_auth_state:
+                auth_state['session_ids'] = prev_auth_state.get('session_ids', [])
+            else:
+                auth_state['session_ids'] = []
         await user.save_auth_state(auth_state)
         return user
 
