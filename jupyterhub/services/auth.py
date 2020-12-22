@@ -483,9 +483,10 @@ class HubAuth(SingletonConfigurable):
         if time.time() - self.last_session_id_validation > 5:
             self.last_session_id_validation = int(time.time())
             url=url_path_join(
-                self.api_url, "authorizations/sessionid", quote(username, safe=''), quote(session_id, safe='')
+                self.api_url, "authorizations/sessionid", quote(username, safe='')
             )
-            self.last_session_id_validation_result = self._api_request('GET', url, allow_404=True)
+            headers = { "sessionid": session_id }
+            self.last_session_id_validation_result = self._api_request('GET', url, allow_404=True, headers=headers)
         return self.last_session_id_validation_result
 
     def get_user(self, handler):
