@@ -424,7 +424,7 @@ class BaseHandler(RequestHandler):
             # have cookie, but it's not valid. Clear it and start over.
             clear()
             return
-        if self.authenticator.enable_auth_state and self.app.strict_session_ids:
+        if self.authenticator.enable_auth_state and self.authenticator.strict_session_ids:
             session_id = self.get_cookie(SESSION_COOKIE_NAME, '')
             nest_asyncio.apply()
             loop = asyncio.get_event_loop()
